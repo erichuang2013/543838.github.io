@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Three.js Fireworks</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <script>
+        // 3. Initialize Scene, Camera, and Renderer
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        const raycaster = new THREE.Raycaster(); // Initialized raycaster
+        const clock = new THREE.Clock(); // For deltaTime
+        const particles = []; // To store active particle systems
+
+        // Initialize TextureLoader
+        const loader = new THREE.TextureLoader();
+
+        // Load background texture
+        loader.load(
+            'https://www.transparenttextures.com/patterns/stardust.png', // Texture URL
+            function(texture) {
+                scene.background = texture; // Set scene background on successful load
+            },
+            undefined, // onProgress callback (not needed for this task)
+            function(err) {
+                console.error('An error happened while loading the background texture:', err);
+                // Fallback to a dark color if texture loading fails
+                scene.background = new THREE.Color(0x101020);
+            }
+        );
+
+        // Set camera position
+        camera.position.z = 5;
+
+        // Set renderer size
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        // 4. Append renderer's DOM element to the body
+        document.body.appendChild(renderer.domElement);
+
+        // Optional: Add a resize listener
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }, false);
+
+        // Add mousedown event listener
+        window.addEventListener('mousedown', (event) => {
+            const mouse = new THREE.Vector2();
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const vector = new THREE.Vector3(mouse.x, mouse.y, 0.5);
+            vector.unproject(camera);
+            const dir = vector.sub(camera.position).normalize();
+            const distance = -camera.position.z / dir.z;
+            const pos = camera.position.clone().add(dir.multiplyScalar(distance));
+
+            // console.log('Click 3D Position:', pos.x, pos.y, pos.z);
+            createFirework(pos); // Call createFirework with the click position
+        }, false);
+
+        function createFirework(position) {
+            const particleCount = 100;
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            const fireworkData = {
+                system: null, // Will be assigned the THREE.Points object
+                particleDetails: [] // Array to store { velocity: THREE.Vector3, lifetime: float, initialLifetime: float }
+            };
+
+            const material = new THREE.PointsMaterial({
+                color: 0x00ff00, // green
+                size: 0.1,
+                transparent: true,
+                opacity: 1.0,
+                blending: THREE.AdditiveBlending
+            });
+
+            for (let i = 0; i < particleCount; i++) {
+                vertices.push(0, 0, 0); // Initial position relative to the system
+
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2
+                );
+                velocity.normalize().multiplyScalar(Math.random() * 2 + 1); // Random speed between 1 and 3
+
+                const lifetime = 1 + Math.random() * 1; // Lifetime between 1 and 2 seconds
+                fireworkData.particleDetails.push({
+                    velocity: velocity,
+                    lifetime: lifetime,
+                    initialLifetime: lifetime 
+                });
+            }
+
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            const fireworkSystem = new THREE.Points(geometry, material);
+            fireworkSystem.position.copy(position);
+            
+            fireworkData.system = fireworkSystem; // Assign the created system
+            particles.push(fireworkData);
+            scene.add(fireworkSystem);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const deltaTime = clock.getDelta();
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const fireworkData = particles[i];
+                const fireworkSystem = fireworkData.system;
+                const details = fireworkData.particleDetails;
+                const positions = fireworkSystem.geometry.attributes.position;
+
+                let systemStillAlive = false;
+
+                for (let j = 0; j < details.length; j++) {
+                    if (details[j].lifetime > 0) {
+                        details[j].lifetime -= deltaTime;
+
+                        if (details[j].lifetime <= 0) {
+                            // Simple way: mark as dead, could hide vertices later
+                            positions.array[j * 3 + 0] = 0; // Hide by moving to origin of system
+                            positions.array[j * 3 + 1] = 0;
+                            positions.array[j * 3 + 2] = 0;
+                        } else {
+                            systemStillAlive = true; // At least one particle is alive
+                            positions.array[j * 3 + 0] += details[j].velocity.x * deltaTime;
+                            positions.array[j * 3 + 1] += details[j].velocity.y * deltaTime;
+                            positions.array[j * 3 + 2] += details[j].velocity.z * deltaTime;
+
+                            details[j].velocity.y -= 0.98 * deltaTime; // Gravity (approx Earth g)
+
+                            // Update opacity based on the first particle for simplicity
+                            // This will make the whole system fade together
+                            if (j === 0) {
+                                fireworkSystem.material.opacity = details[j].lifetime / details[j].initialLifetime;
+                            }
+                        }
+                    }
+                }
+                positions.needsUpdate = true;
+
+                if (!systemStillAlive) {
+                    scene.remove(fireworkSystem);
+                    if (fireworkSystem.geometry) fireworkSystem.geometry.dispose();
+                    if (fireworkSystem.material) fireworkSystem.material.dispose();
+                    particles.splice(i, 1); // Remove from array
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
